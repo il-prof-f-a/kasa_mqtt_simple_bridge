@@ -75,6 +75,10 @@ Per un test iniziale o per l'esecuzione manuale, lancia semplicemente lo script:
 python kasa_mqtt_bridge.py
 ```
 Vedrai i log apparire nel terminale, mostrando la scoperta dei dispositivi e il ciclo di polling. Premi CTRL+C per fermarlo.
+Da qui potrai capire quali sono i topic dei tuoi device per poterli gestire da mqtt. L'alternativa è registrarsi a tutti i topic con il prefisso definito nel file di configurazione:
+```bash
+mosquitto_sub -h 192.168.0.1 -t "kasa/#" -v
+```
 
 ## API MQTT
 
@@ -131,7 +135,7 @@ Per far girare il bridge 24/7, è necessario configurarlo come servizio che si a
     sudo nano /etc/systemd/system/kasa-bridge.service
     ```
     
-2.  **Incolla la seguente configurazione.**  **ATTENZIONE:** Sostituisci il_tuo_utente e i percorsi /home/il_tuo_utente/... con i tuoi dati reali!
+2.  **Incolla la seguente configurazione.**  **ATTENZIONE:** Sostituisci <il_tuo_utente> e i percorsi /home/<il_tuo_utente>/... con i tuoi dati reali!
     
     codeIni
     
@@ -142,13 +146,13 @@ Per far girare il bridge 24/7, è necessario configurarlo come servizio che si a
     
     [Service]
     Type=simple
-    User=**il_tuo_utente**
+    User=<il_tuo_utente>
     
     # Percorso all'eseguibile Python del venv e allo script
-    ExecStart=/home/**il_tuo_utente**/kasa_mqtt_simple_bridge/venv/bin/python /home/**il_tuo_utente**/kasa_mqtt_simple_bridge/kasa_mqtt_bridge.py
+    ExecStart=/home/<il_tuo_utente>/kasa_mqtt_simple_bridge/venv/bin/python /home/<il_tuo_utente>/kasa_mqtt_simple_bridge/kasa_mqtt_bridge.py
     
     # Directory di lavoro del progetto
-    WorkingDirectory=/home/**il_tuo_utente**/kasa_mqtt_simple_bridge
+    WorkingDirectory=/home/<il_tuo_utente>/kasa_mqtt_simple_bridge
     
     Restart=on-failure
     RestartSec=15
