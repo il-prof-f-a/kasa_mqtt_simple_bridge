@@ -27,7 +27,7 @@ Molte piattaforme domotiche hanno un supporto limitato o inaffidabile per i disp
 1.  Clona questo repository sulla macchina che eseguirà il bridge:
     ```bash
     git clone https://github.com/il-prof-f-a/kasa_mqtt_simple_bridge
-    cd kasa-mqtt-bridge
+    cd kasa_mqtt_simple_bridge
     ```
 
 2.  Crea e attiva un ambiente virtuale Python. Questo isola le dipendenze del progetto.
