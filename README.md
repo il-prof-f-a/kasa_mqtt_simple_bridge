@@ -1,4 +1,5 @@
 
+  
 # Kasa MQTT Bridge
 
 Un bridge Python semplice, robusto e auto-configurante per integrare i dispositivi TP-Link Kasa (incluso l'Hub KH100, le valvole termostatiche KE100, prese, lampadine, etc.) in qualsiasi sistema domotico tramite MQTT.
@@ -141,13 +142,13 @@ Per far girare il bridge 24/7, è necessario configurarlo come servizio che si a
     
     [Service]
     Type=simple
-    User=il_tuo_utente
+    User=**il_tuo_utente**
     
     # Percorso all'eseguibile Python del venv e allo script
-    ExecStart=/home/il_tuo_utente/kasa_mqtt_simple_bridge/venv/bin/python /home/il_tuo_utente/kasa_mqtt_simple_bridge/kasa_mqtt_bridge.py
+    ExecStart=/home/**il_tuo_utente**/kasa_mqtt_simple_bridge/venv/bin/python /home/**il_tuo_utente**/kasa_mqtt_simple_bridge/kasa_mqtt_bridge.py
     
     # Directory di lavoro del progetto
-    WorkingDirectory=/home/il_tuo_utente/kasa_mqtt_simple_bridge
+    WorkingDirectory=/home/**il_tuo_utente**/kasa_mqtt_simple_bridge
     
     Restart=on-failure
     RestartSec=15
