@@ -1,0 +1,13 @@
+# File dei requisiti per Kasa MQTT Bridge
+
+# Libreria principale per il controllo dei dispositivi Kasa
+python-kasa
+
+# Client MQTT asincrono
+aiomqtt
+
+# Per leggere i file di configurazione YAML
+PyYAML
+
+# Per la scoperta delle interfacce di rete (cross-platform)
+ifaddr

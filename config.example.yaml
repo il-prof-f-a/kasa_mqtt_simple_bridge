@@ -1,0 +1,30 @@
+# Configurazione del Kasa MQTT Bridge (versione con Discovery Ibrido)
+
+mqtt:
+  host: "127.0.0.1"
+  port: 1883
+  user: ""
+  password: ""
+  base_topic: "kasa"
+
+kasa:
+  email: "tua_email@esempio.com"
+  password: "la_tua_password_kasa"
+
+# Intervallo in secondi per il POLLING dello stato dei dispositivi CONOSCIUTI
+poll_interval: 60
+
+# Lista di "device" da scoprire per trovare NUOVI dispositivi o a cui collegarsi direttamente
+discovery_jobs:
+  - type: "broadcast"
+    timeout: 5
+    rescan_interval: 300
+
+  - type: "host"
+    target: "192.168.1.100" # <-- IP del tuo Hub Kasa (se lo conosci)
+    rescan_interval: 300
+        
+  # Esempio di scansione di rete ogni ora (con riscansione a 3600 secondi)
+  #- type: "network"
+  #  target: "192.168.1.0/24"
+  #  rescan_interval: 3600

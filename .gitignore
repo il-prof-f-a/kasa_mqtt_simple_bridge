@@ -1,0 +1,14 @@
+# Ambiente virtuale di Python
+venv/
+
+# File di configurazione personale
+config.yaml
+
+# Cache e file compilati di Python
+__pycache__/
+*.pyc
+
+# File degli editor e del sistema operativo
+.vscode/
+.idea/
+*.DS_Store
