@@ -26,7 +26,7 @@ Molte piattaforme domotiche hanno un supporto limitato o inaffidabile per i disp
 
 1.  Clona questo repository sulla macchina che eseguirà il bridge:
     ```bash
-    git clone https://github.com/IL_TUO_USERNAME/kasa-mqtt-bridge.git
+    git clone https://github.com/il-prof-f-a/kasa-mqtt-bridge.git
     cd kasa-mqtt-bridge
     ```
 
