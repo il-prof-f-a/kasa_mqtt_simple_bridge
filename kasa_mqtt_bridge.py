@@ -67,16 +67,16 @@ async def discovery_task(kasa_devices, device_map, reverse_device_map):
             if datetime.now() >= next_scan_times[i]:
                 job_type = job.get("type")
                 logging.info(f"Esecuzione Job di Scoperta {i+1} (Tipo: {job_type})")
-                
+
                 temp_found_devices = {}
-                
+
                 if job_type == "broadcast":
                     timeout = job.get("timeout", 5)
                     try:
                         discovered = await Discover.discover(timeout=timeout)
                         for ip, dev in discovered.items(): temp_found_devices[ip] = dev
                     except Exception as e: logging.error(f"Errore durante il broadcast: {e}")
-                
+
                 elif job_type == "host":
                     target_ip = job.get("target")
                     if target_ip:
@@ -93,9 +93,9 @@ async def discovery_task(kasa_devices, device_map, reverse_device_map):
                     try:
                         dev = await Discover.discover_single(ip, credentials=creds)
                         await dev.update()
-                        
+
                         is_a_hub = "KH100" in dev.model
-                        
+
                         if is_a_hub:
                             logging.info(f"  -> È un Hub ('{dev.alias}'). Cerco i dispositivi figli...")
                             for child in dev.children:
@@ -125,34 +125,55 @@ async def discovery_task(kasa_devices, device_map, reverse_device_map):
                     logging.info(f"--- Job {i+1} completato. Prossimo scan schedulato tra {rescan_interval} secondi. ---")
                 else:
                     next_scan_times[i] = datetime.max
-        
+
         await asyncio.sleep(15) # Controlla se è ora di eseguire un job ogni 15 secondi
 
 async def poll_kasa_devices(client, devices, dev_map):
     """
     Task che interroga periodicamente lo stato di tutti i dispositivi Kasa conosciuti
-    e pubblica i dati su MQTT.
+    e pubblica i dati su MQTT. Prima aggiorna l'hub di ciascun figlio, una sola
+    volta per ciclo, per avere stati coerenti.
     """
     base_topic = config['mqtt']['base_topic']
     while True:
         poll_interval = config.get('poll_interval', 60)
         logging.info(f"Inizio ciclo di polling per {len(devices)} dispositivi...")
-        
+
+        # per non aggiornare lo stesso hub più volte nello stesso ciclo
+        hubs_aggiornati = set()
+
         for device_id in list(devices.keys()):
-            if device_id in devices:
-                valvola = devices[device_id]
-                device_name = dev_map[device_id]
-                try:
-                    await valvola.update()
-                    state_json = {n: get_feature_value(f) for n, f in valvola.features.items() if get_feature_value(f) is not None}
-                    state_topic = f"{base_topic}/{device_name}/state"
-                    payload = json.dumps(state_json)
-                    await client.publish(state_topic, payload, retain=True)
-                except Exception as e:
-                    logging.error(f"Errore durante l'aggiornamento per {device_name}: {e}. Potrebbe essere offline.")
-        
+            if device_id not in devices:
+                continue
+
+            valvola = devices[device_id]
+            device_name = dev_map[device_id]
+
+            try:
+                # 1) Se il device ha un parent (hub), aggiorna prima l'hub una sola volta
+                hub = getattr(valvola, "parent", None)
+                if hub is not None:
+                    hub_key = id(hub)
+                    if hub_key not in hubs_aggiornati:
+                        logging.debug(f"Aggiorno HUB '{getattr(hub, 'alias', 'sconosciuto')}' prima dei figli...")
+                        await hub.update()
+                        hubs_aggiornati.add(hub_key)
+
+                # 2) Poi aggiorna il device (figlio o standalone)
+                await valvola.update()
+
+                # 3) Pubblica lo stato su MQTT
+                state_json = {n: get_feature_value(f) for n, f in valvola.features.items()
+                              if get_feature_value(f) is not None}
+                state_topic = f"{base_topic}/{device_name}/state"
+                await client.publish(state_topic, json.dumps(state_json), retain=True)
+
+            except Exception as e:
+                logging.error(f"Errore durante l'aggiornamento per {device_name}: {e}. Potrebbe essere offline.")
+
         logging.info(f"Fine ciclo di polling. Prossimo aggiornamento tra {poll_interval} secondi.")
         await asyncio.sleep(poll_interval)
+
 
 async def handle_mqtt_messages(client, devices, rev_map):
     """
@@ -163,36 +184,36 @@ async def handle_mqtt_messages(client, devices, rev_map):
     command_topic_wildcard = f"{base_topic}/+/set"
     await client.subscribe(command_topic_wildcard)
     logging.info(f"Sottoscritto al topic wildcard per i comandi: {command_topic_wildcard}")
-    
+
     async for message in client.messages:
         try:
             topic = message.topic.value
             device_name = topic.split('/')[1]
-            
+
             if device_name in rev_map:
                 device_id = rev_map[device_name]
                 valvola = devices[device_id]
                 payload_str = message.payload.decode()
                 logging.info(f"Messaggio ricevuto per '{device_name}': {payload_str}")
                 commands = json.loads(payload_str)
-                
+
                 for feature_name, new_value in commands.items():
                     if feature_name in valvola.features and hasattr(valvola.features[feature_name], 'set_value'):
                         logging.info(f"  -> Invio comando: imposta '{feature_name}' a '{new_value}'")
                         await valvola.features[feature_name].set_value(new_value)
-                        
+
                         if hasattr(valvola, 'parent') and valvola.parent:
                             hub_to_update = valvola.parent
                             logging.info(f"  -> Forzo l'aggiornamento dell'hub '{hub_to_update.alias}' per conferma...")
-                            await asyncio.sleep(1) 
+                            await asyncio.sleep(1)
                             await hub_to_update.update()
                             logging.info(f"  -> Aggiornamento HUB completato.")
-                            
+
                             state_json = {n: get_feature_value(f) for n, f in valvola.features.items() if get_feature_value(f) is not None}
                             state_topic = f"{base_topic}/{device_name}/state"
                             await client.publish(state_topic, json.dumps(state_json), retain=True)
                             logging.info(f"  -> Pubblicazione stato aggiornato per '{device_name}'")
-            
+
         except json.JSONDecodeError:
             logging.warning(f"Payload ricevuto su {topic} non è un JSON valido: {payload_str}")
         except Exception:
@@ -203,10 +224,10 @@ async def main():
     Funzione principale che inizializza e orchestra tutti i task del bridge.
     """
     logging.info("Avvio del Kasa-MQTT Bridge...")
-    
+
     # Dizionari condivisi che verranno popolati e usati dai task
     kasa_devices, device_map, reverse_device_map = {}, {}, {}
-    
+
     main_tasks = []
     try:
         async with aiomqtt.Client(
@@ -219,10 +240,10 @@ async def main():
             discovery = asyncio.create_task(discovery_task(kasa_devices, device_map, reverse_device_map))
             messages = asyncio.create_task(handle_mqtt_messages(client, kasa_devices, reverse_device_map))
             polling = asyncio.create_task(poll_kasa_devices(client, kasa_devices, device_map))
-            
+
             main_tasks = [discovery, messages, polling]
             await asyncio.gather(*main_tasks)
-            
+
     except asyncio.CancelledError:
         logging.info("Task principale cancellato, inizio spegnimento.")
     except Exception:
@@ -239,10 +260,8 @@ if __name__ == "__main__":
     # Applica il fix per l'event loop solo su Windows
     if platform.system() == "Windows":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         logging.info("Ricevuto segnale di interruzione (CTRL+C). Spegnimento pulito...")
-    
-    logging.info("Kasa MQTT Bridge arrestato.")
