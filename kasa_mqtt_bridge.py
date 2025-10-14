@@ -204,7 +204,7 @@ async def poll_kasa_devices(client, devices, dev_map):
 async def handle_mqtt_messages(client, devices, rev_map):
     """Gestione comandi MQTT: .../base_topic/<device>/set con payload JSON."""
     base_topic = config['mqtt']['base_topic']
-    command_topic_wildcard = f"{base_topic}/+/set"
+    command_topic_wildcard = f"{base_topic}/+/set/#"
     await client.subscribe(command_topic_wildcard)
     logging.info(f"Sottoscritto ai comandi su: {command_topic_wildcard}")
 
@@ -229,33 +229,51 @@ async def handle_mqtt_messages(client, devices, rev_map):
                 logging.warning(f"Device '{device_name}' non presente in memoria.")
                 continue
 
-            payload_str = message.payload.decode(errors="replace")
+            payload_str = message.payload.decode(errors="replace").strip()
             logging.info(f"Cmd per '{device_name}': {payload_str}")
-            commands = json.loads(payload_str)
 
-            for feature_name, new_value in commands.items():
+            # 🔧 1️⃣ Determina il target feature dal topic (es. /set/state o /set/target_temperature)
+            feature_from_topic = parts[3] if len(parts) >= 4 else "state"
+
+            # 🔧 2️⃣ Prova a interpretare il payload in modo flessibile
+            try:
+                parsed = json.loads(payload_str)
+            except json.JSONDecodeError:
+                # tenta interpretazione diretta (true/false/numero/stringa)
+                if payload_str.lower() in ("true", "on"):
+                    parsed = {feature_from_topic: True}
+                elif payload_str.lower() in ("false", "off"):
+                    parsed = {feature_from_topic: False}
+                else:
+                    try:
+                        val = float(payload_str)
+                        parsed = {feature_from_topic: val}
+                    except ValueError:
+                        parsed = {feature_from_topic: payload_str}
+
+            # 🔧 3️⃣ Se è un valore diretto (bool, str, ecc.), avvolgilo come dict
+            if isinstance(parsed, (bool, int, float, str)):
+                parsed = {feature_from_topic: parsed}
+
+            # 🔧 4️⃣ Applica i comandi
+            for feature_name, new_value in parsed.items():
                 if feature_name in dev.features and hasattr(dev.features[feature_name], 'set_value'):
-                    await a_wait_for(dev.features[feature_name].set_value(new_value),
-                                     timeout=10, what=f"set {feature_name} on {device_name}")
+                    await a_wait_for(dev.features[feature_name].set_value(new_value), timeout=10, what=f"set {feature_name} on {device_name}")
 
-                    # Aggiorna hub e ripubblica conferma
+                    # aggiorna stato dopo comando
                     if hasattr(dev, 'parent') and dev.parent:
-                        hub_to_update = dev.parent
                         await asyncio.sleep(1)
-                        await a_wait_for(hub_to_update.update(), timeout=10, what="confirm hub update")
+                        await a_wait_for(dev.parent.update(), timeout=10, what="confirm hub update")
 
-                        state_json = {n: get_feature_value(f) for n, f in dev.features.items()
-                                      if get_feature_value(f) is not None}
-                        state_topic = f"{base_topic}/{device_name}/state"
-                        await a_wait_for(client.publish(state_topic, json.dumps(state_json), retain=True),
-                                         timeout=10, what=f"publish confirm {device_name}")
+                        state_json = {n: get_feature_value(f) for n, f in dev.features.items() if get_feature_value(f) is not None}
+                        state_topic = f"{config['mqtt']['base_topic']}/{device_name}/state"
+                        await a_wait_for(client.publish(state_topic, json.dumps(state_json), retain=True), timeout=10, what=f"publish confirm {device_name}")
                 else:
                     logging.warning(f"Feature '{feature_name}' non impostabile su '{device_name}'")
 
-        except json.JSONDecodeError:
-            logging.warning(f"Payload non JSON su {topic}: {payload_str}")
         except Exception:
             logging.exception(f"Errore gestione messaggio (topic={topic})")
+
 
 async def heartbeat_task(client, base_topic, stop_event, sd_notifier=None):
     """Heartbeat su MQTT e (se presente) sd_notify watchdog."""
@@ -393,6 +411,10 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logging.info("Interruzione da tastiera, spegnimento pulito...")
         sys.exit(0)
+    except Exception as e:
+        logging.exception(f"Uscita inattesa: {e}")
+        sys.exit(2)  # non-zero -> systemd Restart=on-failure
+
     except Exception as e:
         logging.exception(f"Uscita inattesa: {e}")
         sys.exit(2)  # non-zero -> systemd Restart=on-failure
