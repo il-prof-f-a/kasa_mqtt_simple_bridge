@@ -184,7 +184,7 @@ async def poll_kasa_devices(client, devices, dev_map):
                         await a_wait_for(hub.update(), timeout=10, what="update hub")
                         hubs_aggiornati.add(hub_key)
 
-                await a_wait_for(dev.update(), timeout=10, what=f"update device {device_name}")
+                await a_wait_for(dev.update(), timeout=30, what=f"update device {device_name}")
 
                 state_json = {
                     n: get_feature_value(f)
@@ -260,15 +260,30 @@ async def handle_mqtt_messages(client, devices, rev_map):
 async def heartbeat_task(client, base_topic, stop_event, sd_notifier=None):
     """Heartbeat su MQTT e (se presente) sd_notify watchdog."""
     status_topic = f"{base_topic}/_bridge/status"
+
+    # Pubblica stato "online"
     try:
-        await client.publish(status_topic, json.dumps({"status": "online", "ts": datetime.utcnow().isoformat()}), retain=True)
+        await client.publish(status_topic, json.dumps({
+            "status": "online",
+            "ts": datetime.utcnow().isoformat()
+        }), retain=True)
     except Exception:
         logging.warning("Impossibile pubblicare stato 'online' all'avvio.")
+
+    # 🟢 Avvisa systemd che siamo pronti
+    if sd_notifier:
+        try:
+            sd_notifier.notify("READY=1")
+        except Exception:
+            pass
+
     while not stop_event.is_set():
         try:
             await client.publish(f"{base_topic}/_bridge/heartbeat",
                                  json.dumps({"ts": datetime.utcnow().isoformat()}),
                                  retain=False)
+
+            # 🔁 invia WATCHDOG=1 ogni ciclo (ogni 15s)
             if sd_notifier:
                 try:
                     sd_notifier.notify("WATCHDOG=1")
@@ -276,11 +291,9 @@ async def heartbeat_task(client, base_topic, stop_event, sd_notifier=None):
                     pass
         except Exception:
             logging.debug("Heartbeat fallito (broker down?).")
-        await asyncio.sleep(15)
-    try:
-        await client.publish(status_topic, json.dumps({"status": "offline", "ts": datetime.utcnow().isoformat()}), retain=True)
-    except Exception:
-        pass
+
+        await asyncio.sleep(30)
+
 
 # --- Supervisione sessione MQTT (con backoff) ---
 async def run_once(stop_event):
@@ -297,15 +310,30 @@ async def run_once(stop_event):
         sd_notifier = None
 
     async with aiomqtt.Client(
-        hostname=config['mqtt']['host'], port=config['mqtt']['port'],
-        username=config['mqtt'].get('user'), password=config['mqtt'].get('password')
+        hostname=config['mqtt']['host'],
+        port=config['mqtt']['port'],
+        username=config['mqtt'].get('user'),
+        password=config['mqtt'].get('password')
     ) as client:
-        logging.info("Connesso al broker MQTT.")
+        # Aspetta connessione effettiva
+        for i in range(10):
+            if getattr(client, "is_connected", False):
+                break
+            await asyncio.sleep(0.5)
+        if not getattr(client, "is_connected", False):
+            logging.warning("Attenzione: il client MQTT non risulta connesso dopo 5s, proseguo comunque.")
+        else:
+            logging.info("MQTT connesso e pronto per il polling.")
+
         base_topic = config['mqtt']['base_topic']
         discovery = asyncio.create_task(discovery_task(kasa_devices, device_map, reverse_device_map), name="discovery")
         messages  = asyncio.create_task(handle_mqtt_messages(client, kasa_devices, reverse_device_map), name="mqtt_messages")
+
+        # 👉 avvia il polling solo dopo connessione
+        await asyncio.sleep(1)
         polling   = asyncio.create_task(poll_kasa_devices(client, kasa_devices, device_map), name="polling")
         heartbeat = asyncio.create_task(heartbeat_task(client, base_topic, stop_event, sd_notifier), name="heartbeat")
+
         tasks = [discovery, messages, polling, heartbeat]
 
         try:
