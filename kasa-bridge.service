@@ -1,3 +1,4 @@
+
 # /etc/systemd/system/kasa-bridge.service
 [Unit]
 Description=Kasa MQTT Bridge Service
@@ -9,17 +10,23 @@ StartLimitBurst=10
 [Service]
 Type=notify
 NotifyAccess=main
-User=<utente>
-WorkingDirectory=/home/<utente>/kasa_mqtt_simple_bridge
+User=<user>
+WorkingDirectory=/home/<user>/kasa_mqtt_simple_bridge
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/<utente>/kasa_mqtt_simple_bridge/venv/bin/python -u /home/<utente>/kasa_mqtt_simple_bridge/bridge.py
+ExecStart=/home/<user>/kasa_mqtt_simple_bridge/venv/bin/python -u /home/<user>/kasa_mqtt_simple_bridge/kasa_>
 
 # Policy di riavvio
 Restart=on-failure
 RestartSec=5s
 
 # Watchdog: il codice invia WATCHDOG=1 ogni ~15s
-WatchdogSec=30s
+WatchdogSec=120s
+
+# (opzionale) limita l’attesa iniziale
+TimeoutStartSec=15s
+
+StandardOutput=journal
+StandardError=journal
 
 # (opzionali)
 # TimeoutStopSec=15s
